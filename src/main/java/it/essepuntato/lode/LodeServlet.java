@@ -15,14 +15,7 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 package it.essepuntato.lode;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringReader;
-import java.io.StringWriter;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
@@ -109,48 +102,81 @@ public class LodeServlet extends HttpServlet {
 		super();
 	}
 
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        doGetOrPost(request, response);
+    }
+
 	/**
 	 * @see HttpServlet#doGet(HttpServletRequest request, HttpServletResponse
 	 *      response)
 	 */
 	protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
-		response.setContentType("text/html");
+	    doGetOrPost(request, response);
+    }
 
-		resolvePaths(request); /* Used instead of the SourceForge repo */
-		response.setCharacterEncoding("UTF-8");
-		PrintWriter out = response.getWriter();
+	private void doGetOrPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        response.setContentType("text/html");
 
-		SourceExtractor extractor = new SourceExtractor();
-		extractor.addMimeTypes(MimeType.mimeTypes);
+        resolvePaths(request); /* Used instead of the SourceForge repo */
+        response.setCharacterEncoding("UTF-8");
+        PrintWriter out = response.getWriter();
 
-		for (int i = 0; i < maxTentative; i++) {
-			try {
-				String stringURL = request.getParameter("url");
+        SourceExtractor extractor = new SourceExtractor();
+        extractor.addMimeTypes(MimeType.mimeTypes);
 
-				URL ontologyURL = new URL(stringURL);
-				HttpURLConnection.setFollowRedirects(true);
+        for (int i = 0; i < maxTentative; i++) {
+            try {
 
-				String content = "";
+                String content = "";
 
-				boolean useOWLAPI = new Boolean(request.getParameter("owlapi"));
-				boolean considerImportedOntologies = new Boolean(request.getParameter("imported"));
-				boolean considerImportedClosure = new Boolean(request.getParameter("closure"));
-				boolean useReasoner = new Boolean(request.getParameter("reasoner"));
+                String lang = request.getParameter("lang");
+                if (lang == null) {
+                    lang = "en";
+                }
 
-				if (considerImportedOntologies || considerImportedClosure || useReasoner) {
-					useOWLAPI = true;
-				}
+                String stringURL = request.getParameter("url");
 
-				String lang = request.getParameter("lang");
-				if (lang == null) {
-					lang = "en";
-				}
+                if (stringURL == null || stringURL.isEmpty()) {
 
-				if (useOWLAPI) {
-					content = parseWithOWLAPI(ontologyURL, useOWLAPI, considerImportedOntologies, considerImportedClosure, useReasoner);
-				} else {
-					content = extractor.exec(ontologyURL);
-				}
+                    BufferedReader bufferedReader;
+                    try {
+                        bufferedReader = request.getReader();
+                    } catch (IllegalStateException e) {
+                        InputStream inputStream = request.getInputStream();
+
+                        // As per BalusC's comment:
+                        String charsetName = request.getCharacterEncoding();
+                        if (charsetName == null) {
+                            charsetName = "UTF-8";
+                        }
+
+                        InputStreamReader inputStreamReader = new InputStreamReader(inputStream, charsetName);
+                        bufferedReader = new BufferedReader(inputStreamReader);
+                    }
+
+                    String line;
+                    while ((line = bufferedReader.readLine()) != null) {
+                        content += line + "\n";
+                    }
+                } else {
+                    URL ontologyURL = new URL(stringURL);
+                    HttpURLConnection.setFollowRedirects(true);
+
+                    boolean useOWLAPI = new Boolean(request.getParameter("owlapi"));
+                    boolean considerImportedOntologies = new Boolean(request.getParameter("imported"));
+                    boolean considerImportedClosure = new Boolean(request.getParameter("closure"));
+                    boolean useReasoner = new Boolean(request.getParameter("reasoner"));
+
+                    if (considerImportedOntologies || considerImportedClosure || useReasoner) {
+                        useOWLAPI = true;
+                    }
+
+                    if (useOWLAPI) {
+                        content = parseWithOWLAPI(ontologyURL, useOWLAPI, considerImportedOntologies, considerImportedClosure, useReasoner);
+                    } else {
+                        content = extractor.exec(ontologyURL);
+                    }
+                }
 
 				/*
 				 * As it was before the new OWLAPI content =
@@ -160,17 +186,17 @@ public class LodeServlet extends HttpServlet {
 				 * useReasoner); }
 				 */
 
-				content = applyXSLTTransformation(content, stringURL, lang);
+                content = applyXSLTTransformation(content, stringURL, lang);
 
-				out.println(content);
-				i = maxTentative;
-			} catch (Exception e) {
-				if (i + 1 == maxTentative) {
-					out.println(getErrorPage(e));
-				}
-			}
-		}
-	}
+                out.println(content);
+                i = maxTentative;
+            } catch (Exception e) {
+                if (i + 1 == maxTentative) {
+                    out.println(getErrorPage(e));
+                }
+            }
+        }
+    }
 
 	private void resolvePaths(HttpServletRequest request) {
 		xsltURL = getServletContext().getRealPath("extraction.xsl");
@@ -430,7 +456,7 @@ public class LodeServlet extends HttpServlet {
 	}
 
 	private String getErrorPage(Exception e) {
-		return "<html>" + "<head><title>LODE error</title></head>" + "<body>" + "<h2>" + "LODE error" + "</h2>" + "<p><strong>Reason: </strong>" + e.getMessage() + "</p>" + "</body>" + "</html>";
+		return "<html>" + "<head><title>LODE error</title></head>" + "<body>" + "<h2>" + "LODE error" + "</h2>" + "<p><strong>Reason: </strong>" + e.getClass().toString() + " " + e.getMessage() + "</p>" + "</body>" + "</html>";
 	}
 
 	private String applyXSLTTransformation(String source, String ontologyUrl, String lang) throws TransformerException {
